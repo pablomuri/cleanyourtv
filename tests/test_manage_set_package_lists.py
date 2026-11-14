@@ -154,13 +154,23 @@ class PackageListRefusalTest(ThemeSetCase):
 
 
 class BannerNameTest(ThemeSetCase):
-    """The right half of an app_banners pair names a banner_* drawable the launcher ships."""
+    """The right half of an app_banners pair names a banner_* drawable the launcher ships, or an image file."""
 
-    def test_a_name_that_is_not_a_banner_is_refused(self):
+    def test_a_name_that_is_neither_a_banner_nor_an_image_file_is_refused(self):
         # A colour, or the app's own name, where a bundled drawable's name goes: bundledBanner() answers null,
-        # and the tile shows the app's own art while the theme says the banner is set.
-        self.refused('["com.netflix.ninja=magenta"]', "app_banners", "does not start with `banner_`")
-        self.refused('["com.netflix.ninja=Netflix"]', "app_banners", "does not start with `banner_`")
+        # no such file is read either, and the tile shows the app's own art while the theme says it is set.
+        self.refused('["com.netflix.ninja=magenta"]', "app_banners", "neither a `banner_*` drawable nor an image file")
+        self.refused('["com.netflix.ninja=Netflix"]', "app_banners", "neither a `banner_*` drawable nor an image file")
+
+    def test_an_image_file_in_the_config_folder_is_written(self):
+        for entries in (["com.tcl.suspension=icons/quickpanel.png"], ["com.example.app=art.JPG", "com.example.tv=a.webp"]):
+            with self.subTest(entries=entries):
+                self.assertIsNone(self.set_key(json.dumps(entries), "app_banners"))
+                self.assertEqual(entries, self.written()["app_banners"])
+
+    def test_a_file_name_that_leaves_the_config_folder_is_refused(self):
+        # AppAdapter.fileIcon() reads nothing for a name with "..": the tile would keep its own art.
+        self.refused('["com.example.app=../Download/art.png"]', "app_banners", "with no '..'")
 
     def test_a_banner_the_launcher_does_not_ship_is_refused(self):
         text = self.refused('["com.netflix.ninja=banner_tv2"]', "app_banners", "banner_tv2")

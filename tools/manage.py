@@ -32,9 +32,10 @@ activity, an action word, input:, guide: or inputs, since RemoteKeys skips an en
 and that button would open nothing. A list of `"package=value"` entries (`app_labels`, `app_banners`,
 `launch_actions`) is read one entry at a time too: Config.packageMap() keeps only an entry with a package before
 the '=' and a value after it, so an entry without both halves is refused rather than written as one the tile never
-reads, and so is an `app_banners` name the launcher cannot draw: AppAdapter.bundledBanner() answers null for anything
-but a `banner_*` drawable this checkout ships, so `com.netflix.ninja=magenta` is a banner the theme says is set and
-the tile never shows. The two keys the Inputs menu reads a vendor number out of are read the same way:
+reads, and so is an `app_banners` value the launcher cannot draw: a `banner_*` name must be a drawable this checkout
+ships, and anything else is read as an image file in the config folder, so `com.netflix.ninja=magenta` - neither -
+is a banner the theme says is set and the tile never shows. The two keys the Inputs menu reads a vendor number out
+of are read the same way:
 `input_sources` entries one at a time, since InputSources.mapped() skips an entry it cannot match to an input id,
 and `source_panel_extra` as the `"name=value"` pair openSourcePanel() sends, since a value without a name or a
 whole number before the '=' sends no extra at all. A theme's config.json is hand-edited, so one
@@ -438,10 +439,13 @@ def package_pair_problem(values):
 #     return id != 0 ? ctx.getDrawable(id) : null;
 # and a null banner leaves the tile with the app's own art, so the other half of an app_banners entry is not
 # free text: `com.netflix.ninja=magenta` - the app's colour where a bundled banner's name goes - is a banner
-# the theme reports as set and the TV never draws, and `banner_tv2` is the same. The names are read out of this
+# the theme reports as set and the TV never draws, and `banner_tv2` is the same. A value that does not start with
+# banner_ is an image file in the config folder instead (AppAdapter.fileIcon(), which refuses a name with ".."),
+# so it has to look like one: an image file name with no "..". The names are read out of this
 # checkout's res/ rather than listed here, because the launcher a theme is pushed to is built from this tree.
 LAUNCHER_RES = ROOT / "launcher" / "app" / "src" / "main" / "res"
 BANNER_SUFFIXES = (".xml", ".png", ".webp", ".jpg")
+IMAGE_FILE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 
 def bundled_banners(root=ROOT):
@@ -473,8 +477,11 @@ def banner_problem(values, root=ROOT):
         if not name:
             continue
         if not name.startswith("banner_"):
-            return (f"{entry!r} names {name!r}, and bundledBanner() answers null for a name that does not "
-                    f"start with `banner_`, so the tile keeps the art it had")
+            if ".." in name or not name.lower().endswith(IMAGE_FILE_SUFFIXES):
+                return (f"{entry!r} names {name!r}, which is neither a `banner_*` drawable nor an image file in "
+                        f"the config folder ({', '.join(IMAGE_FILE_SUFFIXES)}, with no '..'), so the tile keeps "
+                        f"the art it had")
+            continue
         if name not in have:
             return (f"{entry!r} names {name!r}, which is not a drawable the launcher ships "
                     f"({', '.join(have) if have else 'none'}), so the tile keeps the art it had")
@@ -702,8 +709,8 @@ def value_as(key, item, text):
                      f"written or pushed.")
         # packageMap() trims both halves, so the file holds the pair the map keeps.
         if key == "app_banners":
-            # The right half is a bundled drawable's name, not free text: bundledBanner() draws only a
-            # banner_* name this checkout ships, and a null banner leaves the tile with the app's own art.
+            # The right half is a bundled drawable's name or an image file's, not free text: bundledBanner()
+            # draws only a banner_* name this checkout ships, and a null banner leaves the tile with its own art.
             problem = banner_problem(parsed)
             if problem:
                 sys.exit(f"{key} takes {cell}, and this list has an entry the launcher cannot draw: {problem}. "

@@ -90,7 +90,8 @@
     <string-array name="app_labels">
     </string-array>
     <!-- A tile's artwork instead of the app's banner: "package=drawable", a banner_* drawable bundled with the
-         launcher (res/drawable). banner_tv is a magenta field with the Live TV glyph. -->
+         launcher (res/drawable; banner_tv is a magenta field with the Live TV glyph), or "package=file", an image
+         file in the launcher's config folder beside config.json (icons/example.png), copied there by hand. -->
     <string-array name="app_banners">
     </string-array>
 
