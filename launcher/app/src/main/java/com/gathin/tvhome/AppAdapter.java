@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
@@ -34,6 +35,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -216,7 +218,26 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private final boolean tileMenu;
     /** Tile names and bundled banners that replace the app's own (config.xml, app_labels and app_banners). */
     private final Map<String, String> appLabels, appBanners;
-    /** Every app tile is its icon on a card tinted from that icon, never its banner (config.xml, uniform_tiles). */
+    /** Package to an image file under the config folder that replaces the tile's art (config.json, app_icons). */
+    private final Map<String, String> appIcons;
+    /** app_icons files already decoded, by name, so a reload reads a file again only when it has changed. */
+    private final Map<String, FileIcon> fileIcons = new HashMap<>();
+
+    /** One decoded app_icons file: its bitmap (null for one that could not be read) and the file's timestamp. */
+    private static final class FileIcon {
+        final long modified;
+        final Bitmap bitmap;
+
+        FileIcon(long modified, Bitmap bitmap) {
+            this.modified = modified;
+            this.bitmap = bitmap;
+        }
+    }
+
+    /**
+     * Every app tile is its icon on a card tinted from that icon, never its banner (config.xml, uniform_tiles).
+     * A tile with an app_icons image shows that image instead.
+     */
     private final boolean uniformTiles;
     /** Packages drawn from their icon and name even when they have a banner (config.xml icon_tiles). */
     private final Set<String> iconTiles;
@@ -247,6 +268,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.tileMenu = cfg.tileMenu;
         this.appLabels = cfg.appLabels;
         this.appBanners = cfg.appBanners;
+        this.appIcons = cfg.appIcons;
         this.uniformTiles = cfg.uniformTiles;
         // Tiles keep their identity across reload(), so a focused tile stays on its app instead of
         // its view being rebound to whatever app now sits in that slot.
@@ -296,15 +318,20 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             String label = card != null ? card.label : Cards.cleanLabel(
                     appLabels.containsKey(pkg) ? appLabels.get(pkg) : String.valueOf(ri.loadLabel(pm)), pkg);
             if (!seen.add(pkg + '\n' + label)) continue;
-            Drawable banner = null;
-            // uniform_tiles draws the icon, so an app's banner is never loaded. A module card keeps its banner.
-            if (!(uniformTiles && card == null)) {
+            // app_icons: the owner's own image wins over everything below. A wide one fills the tile like a
+            // banner; any other shape is drawn as the tile's icon, with the name under it.
+            Drawable custom = fileIcon(appIcons.get(pkg));
+            Drawable banner = custom != null && isBannerShaped(custom.getIntrinsicWidth(), custom.getIntrinsicHeight())
+                    ? custom : null;
+            // Without an app_icons image: uniform_tiles draws the icon, so an app's banner is never loaded, and
+            // a module card keeps its banner.
+            if (custom == null && !(uniformTiles && card == null)) {
                 banner = bundledBanner(appBanners.get(pkg));
                 if (banner == null) banner = iconTiles.contains(pkg) ? iconBanner(ri.loadIcon(pm)) : loadBanner(pm, ri);
             }
             // The icon is only drawn (and sampled for the glow) when there is no banner, so a tile with a
             // banner skips loading and decoding it.
-            Drawable icon = banner == null ? ri.loadIcon(pm) : null;
+            Drawable icon = banner != null ? null : custom != null ? custom : ri.loadIcon(pm);
             if (card != null) {
                 fresh.add(new Entry(Entry.CARD, label, component, banner, icon, card.caption, card.accent));
             } else {
@@ -356,6 +383,50 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return new android.graphics.drawable.BitmapDrawable(ctx.getResources(), bmp);
     }
 
+    /** app_icons: an image file under the config folder; null when unset, missing or unreadable. */
+    private Drawable fileIcon(String name) {
+        // First, so a tile without an entry (every tile, on a TV that sets no app_icons) costs nothing.
+        if (!iconName(name)) return null;
+        File dir = Config.dir(ctx);
+        if (dir == null) return null;
+        File file = new File(dir, name);
+        long modified = file.lastModified();   // 0 for a file that is not there
+        FileIcon cached = fileIcons.get(name);
+        if (cached == null || cached.modified != modified) {
+            cached = new FileIcon(modified, modified == 0 ? null : decodeIcon(file.getPath()));
+            fileIcons.put(name, cached);
+        }
+        return cached.bitmap != null ? new android.graphics.drawable.BitmapDrawable(ctx.getResources(), cached.bitmap) : null;
+    }
+
+    /** The picture sampled down to between one and two tile widths, or null when it cannot be read. */
+    private Bitmap decodeIcon(String path) {
+        try {
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(path, options);
+            int cap = Math.round(2 * DESIGN_W_DP * ctx.getResources().getDisplayMetrics().density);
+            options.inSampleSize = iconSampleSize(options.outWidth, options.outHeight, cap);
+            options.inJustDecodeBounds = false;
+            return BitmapFactory.decodeFile(path, options);
+        } catch (Exception | OutOfMemoryError failure) {
+            return null;
+        }
+    }
+
+    /** An app_icons file name the launcher reads: one is set, and it has no ".." that could lead out of the config folder. */
+    static boolean iconName(String name) {
+        return name != null && !name.isEmpty() && !name.contains("..");
+    }
+
+    /** The power-of-two sample size that brings a picture's longer side down to at most {@code cap} pixels. */
+    static int iconSampleSize(int width, int height, int cap) {
+        int sample = 1;
+        if (cap <= 0) return sample;
+        while (Math.max(width, height) / sample > cap) sample *= 2;
+        return sample;
+    }
+
     /** A banner_* drawable bundled with the launcher, or null for none or a name that is not one. */
     private Drawable bundledBanner(String name) {
         if (name == null || !name.startsWith("banner_")) return null;
@@ -392,6 +463,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** Lets go of every tile and its artwork (Home is in the background and memory is short). */
     void clear() {
         items.clear();
+        fileIcons.clear();
         notifyDataSetChanged();
     }
 

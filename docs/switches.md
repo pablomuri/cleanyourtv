@@ -71,3 +71,4 @@ rule sit on its wanted list until a screenshot arrives.
 | `clock_format` | <img src="switches/clock_format.jpg" width="320" alt="clock_format on a TV"> |
 | `glow_snap` | <img src="switches/glow_snap.jpg" width="320" alt="glow_snap on a TV: the glow in Netflix red behind the dock"> |
 | `settings_key_clear_task` | <img src="switches/settings_key_clear_task.jpg" width="320" alt="settings_key_clear_task on a TV: the TV Settings screen the gear opens"> |
+| `app_icons` | <img src="switches/app_icons_before.jpg" width="320" alt="Before app_icons: Quick panel and Settings, two apps that ship no banner, as a small icon and a bare gear in the dock"> <img src="switches/app_icons.jpg" width="320" alt="app_icons on a TV: the same two dock tiles filled by plain image files from the config folder"> |
